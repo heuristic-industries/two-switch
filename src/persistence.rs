@@ -9,7 +9,7 @@ use embassy_stm32::{
     time::khz,
 };
 
-static MAX_ADDRESS: u32 = 2047;
+static MAX_ADDRESS: u32 = 255;
 
 pub trait Persistable {
     fn from_u8(input: u8) -> Self;
@@ -48,7 +48,11 @@ where
         let mut value: u8 = 0;
         for address in 0..MAX_ADDRESS {
             // check if the most significant bit is 0
-            value = eeprom.read_byte(address).unwrap();
+            value = match eeprom.read_byte(address) {
+                Ok(x) => x,
+                Err(e) => panic!("error {:?} reading address {}", e, address),
+            };
+
             if value >> 7 == 0 {
                 current_address = address;
                 break;
@@ -75,7 +79,13 @@ where
         let data = self.state.into_u8();
 
         let result = self.eeprom.write_byte(self.current_address, data);
-        self.eeprom.write_byte(previous_address, 0xFF).unwrap();
+        loop {
+            match self.eeprom.write_byte(previous_address, 0xFF) {
+                Ok(_) => break,
+                Err(Error::I2C(i2c::Error::Nack)) => {}
+                Err(e) => panic!("error {:?} erasing address {}", e, previous_address),
+            };
+        }
         return result;
     }
 }
