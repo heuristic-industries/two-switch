@@ -34,14 +34,14 @@ async fn main(_spawner: Spawner) -> ! {
     let persistence = Persistence::<State>::new(p.I2C1, p.PA9, p.PA10);
 
     let input_1 = ToggleWithMomentary::new(
-        false,
+        persistence.state.switch_1,
         p.PA0.degrade(),
         DEBOUNCE_THRESHOLD,
         HOLD_THRESHOLD,
         p.EXTI0.degrade(),
     );
     let input_1 = ToggleWithMomentary::new(
-        false,
+        persistence.state.switch_2,
         p.PA1.degrade(),
         DEBOUNCE_THRESHOLD,
         HOLD_THRESHOLD,
