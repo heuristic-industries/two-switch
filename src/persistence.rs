@@ -41,7 +41,7 @@ where
             Default::default(),
         );
 
-        let address = SlaveAddr::default();
+        let address = SlaveAddr::Alternative(false, false, false);
         let mut eeprom = Eeprom24x::new_24x02(i2c, address);
 
         let mut current_address: u32 = 0;

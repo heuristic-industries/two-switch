@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::select;
 use embassy_stm32::{
     bind_interrupts,
     exti::Channel,
@@ -64,10 +64,7 @@ async fn main(_spawner: Spawner) -> ! {
     loop {
         let input_1_future = input_1.wait_for_state_change();
         let input_2_future = input_2.wait_for_state_change();
-        match select(input_1_future, input_2_future).await {
-            Either::First(_) => {}
-            Either::Second(_) => {}
-        }
+        select(input_1_future, input_2_future).await;
 
         let state = State::new(input_1.is_enabled, input_2.is_enabled);
         output_1.set_level(Level::from(state.switch_1));
