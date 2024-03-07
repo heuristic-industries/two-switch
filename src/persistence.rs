@@ -47,7 +47,6 @@ where
         let mut current_address: u32 = 0;
         let mut value: u8 = 0;
         for address in 0..MAX_ADDRESS {
-            // let value = storage.eeprom.read_data(address, U);
             // check if the most significant bit is 0
             value = eeprom.read_byte(address).unwrap();
             if value >> 7 == 0 {
