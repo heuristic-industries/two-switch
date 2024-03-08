@@ -20,8 +20,8 @@ impl Persistable for State {
     }
     fn into_u8(&self) -> u8 {
         let mut result = 0u8;
-        result &= if self.switch_1 { 1 } else { 0 };
-        result &= if self.switch_2 { 1 } else { 0 } << 1;
+        result |= if self.switch_1 { 1 } else { 0 };
+        result |= if self.switch_2 { 1 } else { 0 } << 1;
         return result;
     }
 }

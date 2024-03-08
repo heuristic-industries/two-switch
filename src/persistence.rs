@@ -1,13 +1,12 @@
 use crate::Irqs;
-use eeprom24x::{
-    addr_size::OneByte, page_size::B8, unique_serial::No, Eeprom24x, Error, SlaveAddr,
-};
+use eeprom24x::{addr_size::OneByte, page_size::B8, unique_serial::No, Eeprom24x, SlaveAddr};
 use embassy_stm32::{
     dma::NoDma,
-    i2c::{self, I2c, SclPin, SdaPin},
+    i2c::{I2c, SclPin, SdaPin},
     peripherals::I2C1,
     time::khz,
 };
+use embassy_time::Timer;
 
 static MAX_ADDRESS: u32 = 255;
 
@@ -68,7 +67,7 @@ where
         }
     }
 
-    pub fn update(&mut self, state: T) -> Result<(), Error<i2c::Error>> {
+    pub async fn update(&mut self, state: T) {
         self.state = state;
         let previous_address = self.current_address;
         self.current_address += 1;
@@ -78,14 +77,17 @@ where
 
         let data = self.state.into_u8();
 
-        let result = self.eeprom.write_byte(self.current_address, data);
-        loop {
-            match self.eeprom.write_byte(previous_address, 0xFF) {
-                Ok(_) => break,
-                Err(Error::I2C(i2c::Error::Nack)) => {}
-                Err(e) => panic!("error {:?} erasing address {}", e, previous_address),
-            };
-        }
-        return result;
+        self.write(self.current_address, data).await;
+        self.write(previous_address, 0xFF).await;
+    }
+
+    async fn write(&mut self, address: u32, data: u8) {
+        self.eeprom.write_byte(address, data).unwrap();
+
+        // The HAL and EEPROM crate don't seem to offer the primitives needed to
+        // properly handle polling for this part. I can only seem to reliably get
+        // sequential writes to work by waiting the max write time (5ms).
+        // This does not make me happy, but it's still manageable.
+        Timer::after_millis(5).await;
     }
 }
