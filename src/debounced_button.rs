@@ -1,19 +1,15 @@
-use embassy_stm32::exti::{AnyChannel, ExtiInput};
-use embassy_stm32::gpio::{AnyPin, Input, Pull};
+use embassy_stm32::exti::ExtiInput;
 use embassy_time::{Duration, Instant};
 
 pub struct DebouncedButton {
     pub threshold: Duration,
     pub is_pressed: bool,
-    input: ExtiInput<'static, AnyPin>,
+    input: ExtiInput<'static>,
     time: Instant,
 }
 
 impl DebouncedButton {
-    pub fn new(input_pin: AnyPin, threshold: Duration, channel: AnyChannel) -> Self {
-        let button = Input::new(input_pin, Pull::Up);
-        let input = ExtiInput::new(button, channel);
-
+    pub fn new(input: ExtiInput<'static>, threshold: Duration) -> Self {
         DebouncedButton {
             threshold,
             input,

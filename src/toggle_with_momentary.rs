@@ -1,4 +1,4 @@
-use embassy_stm32::{exti::AnyChannel, gpio::AnyPin};
+use embassy_stm32::exti::ExtiInput;
 use embassy_time::{Duration, Instant};
 
 use crate::DebouncedButton;
@@ -13,12 +13,11 @@ pub struct ToggleWithMomentary {
 impl ToggleWithMomentary {
     pub fn new(
         is_enabled: bool,
-        input_pin: AnyPin,
+        input: ExtiInput<'static>,
         debounce_threshold: Duration,
         hold_threshold: Duration,
-        channel: AnyChannel,
     ) -> Self {
-        let button = DebouncedButton::new(input_pin, debounce_threshold, channel);
+        let button = DebouncedButton::new(input, debounce_threshold);
 
         ToggleWithMomentary {
             button,

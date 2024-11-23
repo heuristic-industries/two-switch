@@ -1,17 +1,17 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 use embassy_executor::Spawner;
-use embassy_futures::select::select;
 use embassy_stm32::{
     bind_interrupts,
-    exti::Channel,
-    gpio::{Level, Output, Pin},
+    exti::ExtiInput,
+    gpio::{Level, Output, Pull, Speed},
     i2c, peripherals,
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel};
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 mod debounced_button;
@@ -49,54 +49,29 @@ async fn main(spawner: Spawner) -> ! {
 
     let persistence = Persistence::<State>::new(p.I2C1, p.PA9, p.PA10);
 
-    let mut input_1 = ToggleWithMomentary::new(
-        persistence.state.switch_1,
-        p.PA0.degrade(),
+    let input = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up);
+    let mut bypass_switch = ToggleWithMomentary::new(
+        persistence.state.bypass,
+        input,
         DEBOUNCE_THRESHOLD,
         HOLD_THRESHOLD,
-        p.EXTI0.degrade(),
     );
-    let mut output_1 = Output::new(
-        p.PA1,
-        Level::from(persistence.state.switch_1),
-        embassy_stm32::gpio::Speed::Low,
-    );
-    let mut output_1_inv = Output::new(
-        p.PA2,
-        Level::from(!persistence.state.switch_1),
-        embassy_stm32::gpio::Speed::Low,
-    );
+    let mut output = Output::new(p.PA1, Level::from(persistence.state.bypass), Speed::Low);
+    let mut output_inv = Output::new(p.PA2, Level::from(!persistence.state.bypass), Speed::Low);
 
-    let mut input_2 = ToggleWithMomentary::new(
-        persistence.state.switch_2,
-        p.PA3.degrade(),
-        DEBOUNCE_THRESHOLD,
-        HOLD_THRESHOLD,
-        p.EXTI1.degrade(),
-    );
-    let mut output_2 = Output::new(
-        p.PA4,
-        Level::from(persistence.state.switch_2),
-        embassy_stm32::gpio::Speed::Low,
-    );
-    let mut output_2_inv = Output::new(
-        p.PA5,
-        Level::from(!persistence.state.switch_2),
-        embassy_stm32::gpio::Speed::Low,
-    );
+    let mut enable_output = Output::new(p.PA3, Level::Low, Speed::Low);
+
+    Timer::after_millis(100).await;
+    enable_output.set_high();
 
     spawner.spawn(writer(persistence)).unwrap();
 
     loop {
-        let input_1_future = input_1.wait_for_state_change();
-        let input_2_future = input_2.wait_for_state_change();
-        select(input_1_future, input_2_future).await;
+        bypass_switch.wait_for_state_change().await;
 
-        let state = State::new(input_1.is_enabled, input_2.is_enabled);
-        output_1.set_level(Level::from(state.switch_1));
-        output_2.set_level(Level::from(state.switch_2));
-        output_1_inv.set_level(Level::from(!state.switch_1));
-        output_2_inv.set_level(Level::from(!state.switch_2));
+        let state = State::new(bypass_switch.is_enabled);
+        output.set_level(Level::from(state.bypass));
+        output_inv.set_level(Level::from(!state.bypass));
         CHANNEL.send(state).await;
     }
 }
