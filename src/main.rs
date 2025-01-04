@@ -1,21 +1,19 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(impl_trait_in_assoc_type)]
 
 use embassy_executor::Spawner;
-use embassy_futures::select::select;
 use embassy_stm32::{
     bind_interrupts,
-    exti::Channel,
     gpio::{Level, Output, Pin},
     i2c, peripherals,
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel};
-use embassy_time::Duration;
+use embassy_time::{Duration, Ticker};
 use {defmt_rtt as _, panic_probe as _};
 
 mod debounced_button;
-use debounced_button::DebouncedButton;
 mod toggle_with_momentary;
 use toggle_with_momentary::ToggleWithMomentary;
 mod persistence;
@@ -54,7 +52,6 @@ async fn main(spawner: Spawner) -> ! {
         p.PA0.degrade(),
         DEBOUNCE_THRESHOLD,
         HOLD_THRESHOLD,
-        p.EXTI0.degrade(),
     );
     let mut output_1 = Output::new(
         p.PA1,
@@ -72,7 +69,6 @@ async fn main(spawner: Spawner) -> ! {
         p.PA3.degrade(),
         DEBOUNCE_THRESHOLD,
         HOLD_THRESHOLD,
-        p.EXTI1.degrade(),
     );
     let mut output_2 = Output::new(
         p.PA4,
@@ -87,16 +83,34 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(writer(persistence)).unwrap();
 
+    let mut enabled_1 = input_1.is_enabled;
+    let mut enabled_2 = input_2.is_enabled;
+    let mut ticker = Ticker::every(Duration::from_hz(100));
+    let mut modified = false;
     loop {
-        let input_1_future = input_1.wait_for_state_change();
-        let input_2_future = input_2.wait_for_state_change();
-        select(input_1_future, input_2_future).await;
+        input_1.tick();
+        input_2.tick();
 
         let state = State::new(input_1.is_enabled, input_2.is_enabled);
-        output_1.set_level(Level::from(state.switch_1));
-        output_2.set_level(Level::from(state.switch_2));
-        output_1_inv.set_level(Level::from(!state.switch_1));
-        output_2_inv.set_level(Level::from(!state.switch_2));
-        CHANNEL.send(state).await;
+        if input_1.is_enabled != enabled_1 {
+            enabled_1 = input_1.is_enabled;
+            output_1.set_level(Level::from(state.switch_1));
+            output_1_inv.set_level(Level::from(!state.switch_1));
+            modified = true;
+        }
+
+        if input_2.is_enabled != enabled_2 {
+            enabled_2 = input_2.is_enabled;
+            output_2.set_level(Level::from(state.switch_2));
+            output_2_inv.set_level(Level::from(!state.switch_2));
+            modified = true;
+        }
+
+        if modified {
+            CHANNEL.send(state).await;
+            modified = false;
+        }
+
+        ticker.next().await;
     }
 }

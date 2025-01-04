@@ -1,18 +1,18 @@
-use embassy_stm32::exti::{AnyChannel, ExtiInput};
-use embassy_stm32::gpio::{AnyPin, Input, Pull};
+use embassy_stm32::gpio::AnyPin;
+use embassy_stm32::gpio::Input;
+use embassy_stm32::gpio::Pull;
 use embassy_time::{Duration, Instant};
 
 pub struct DebouncedButton {
     pub threshold: Duration,
     pub is_pressed: bool,
-    input: ExtiInput<'static, AnyPin>,
+    pub input: Input<'static>,
     time: Instant,
 }
 
 impl DebouncedButton {
-    pub fn new(input_pin: AnyPin, threshold: Duration, channel: AnyChannel) -> Self {
-        let button = Input::new(input_pin, Pull::Up);
-        let input = ExtiInput::new(button, channel);
+    pub fn new(pin: AnyPin, threshold: Duration) -> Self {
+        let input = Input::new(pin, Pull::Up);
 
         DebouncedButton {
             threshold,
@@ -22,18 +22,13 @@ impl DebouncedButton {
         }
     }
 
-    pub async fn wait_for_any_edge(&mut self) {
-        loop {
-            self.input.wait_for_any_edge().await;
-            let time = Instant::now();
-            let is_pressed = self.input.is_low();
-            let elapsed = time.duration_since(self.time);
-
-            if is_pressed != self.is_pressed && elapsed > self.threshold {
-                self.is_pressed = is_pressed;
-                self.time = time;
-                break;
-            }
+    pub fn tick(&mut self) {
+        let is_pressed = self.input.is_low();
+        let time = Instant::now();
+        let elapsed = time.duration_since(self.time);
+        if is_pressed != self.is_pressed && elapsed > self.threshold {
+            self.time = time;
+            self.is_pressed = is_pressed;
         }
     }
 }

@@ -6,15 +6,17 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-executor = { version = "0.5.0", features = [
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", rev = "0225c2a0f2ac7fbca5fe1c4d048a09c70738bcb3", features = [
   "nightly",
   "defmt",
   "integrated-timers",
   "arch-cortex-m",
   "executor-thread",
 ] }
-embassy-time = { version = "0.3.0", features = ["defmt"] }
-embassy-stm32 = { version = "0.1.0", features = [
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "0225c2a0f2ac7fbca5fe1c4d048a09c70738bcb3", features = [
+  "defmt",
+] }
+embassy-stm32 = { git = "https://github.com/embassy-rs/embassy.git", rev = "0225c2a0f2ac7fbca5fe1c4d048a09c70738bcb3", features = [
   "defmt",
   "memory-x",
   "stm32f030f4",
@@ -23,7 +25,7 @@ embassy-stm32 = { version = "0.1.0", features = [
   "unstable-pac",
 ] }
 embassy-futures = "0.1.1"
-embassy-sync = "0.5.0"
+embassy-sync = "0.6.0"
 
 defmt = "0.3.5"
 defmt-rtt = "0.4.0"
@@ -37,6 +39,8 @@ panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
 eeprom24x = "0.7.0"
+
+num_enum = { version = "0.7.3", default-features = false }
 
 [profile.dev]
 debug = 2
