@@ -6,11 +6,11 @@
 use embassy_executor::Spawner;
 use embassy_stm32::{
     bind_interrupts,
-    gpio::{Level, Output, Pin},
+    gpio::{Level, Output, Pin, Speed},
     i2c, peripherals,
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel};
-use embassy_time::{Duration, Ticker};
+use embassy_time::{Duration, Ticker, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 mod debounced_button;
@@ -80,6 +80,11 @@ async fn main(spawner: Spawner) -> ! {
         Level::from(!persistence.state.switch_2),
         embassy_stm32::gpio::Speed::Low,
     );
+
+    let mut enable_output = Output::new(p.PA6, Level::Low, Speed::Low);
+
+    Timer::after_millis(100).await;
+    enable_output.set_high();
 
     spawner.spawn(writer(persistence)).unwrap();
 
