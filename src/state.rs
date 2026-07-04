@@ -1,14 +1,9 @@
 use crate::persistence::Persistable;
 
+#[derive(Clone, Copy)]
 pub struct State {
     pub switch_1: bool,
     pub switch_2: bool,
-}
-
-impl State {
-    pub fn new(switch_1: bool, switch_2: bool) -> Self {
-        State { switch_1, switch_2 }
-    }
 }
 
 impl Persistable for State {
@@ -22,6 +17,6 @@ impl Persistable for State {
         let mut result = 0u8;
         result |= if self.switch_1 { 1 } else { 0 };
         result |= if self.switch_2 { 1 } else { 0 } << 1;
-        return result;
+        result
     }
 }

@@ -1,5 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip STM32F030F4Px"
+runner = "probe-rs run --chip STM32F030F4Px --verify"
+#linker = "flip-link"
 
 [build]
 target = "thumbv6m-none-eabi"

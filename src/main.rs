@@ -3,14 +3,21 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
+use crate::debounced_button::DebouncedButton;
+use cortex_m::asm;
 use embassy_executor::Spawner;
 use embassy_stm32::{
     bind_interrupts,
-    gpio::{Level, Output, Pin},
-    i2c, peripherals,
+    exti::{ExtiInput, InterruptHandler as ExtiInterruptHandler},
+    gpio::{Level, Output, Pull},
+    i2c,
+    interrupt::typelevel::{EXTI0_1, EXTI2_3},
+    mode::Async,
+    peripherals::I2C1,
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel};
-use embassy_time::{Duration, Ticker};
+use embassy_time::Duration;
+
 use {defmt_rtt as _, panic_probe as _};
 
 mod debounced_button;
@@ -24,10 +31,22 @@ use state::State;
 static HOLD_THRESHOLD: Duration = Duration::from_millis(700);
 static DEBOUNCE_THRESHOLD: Duration = Duration::from_millis(7);
 
-static CHANNEL: channel::Channel<ThreadModeRawMutex, State, 4> = channel::Channel::new();
+#[derive(Clone, Copy)]
+enum Switch {
+    Switch1,
+    Switch2,
+}
+struct UpdateEvent {
+    switch: Switch,
+    enabled: bool,
+}
+
+static CHANNEL: channel::Channel<ThreadModeRawMutex, UpdateEvent, 2> = channel::Channel::new();
 
 bind_interrupts!(struct Irqs {
-    I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    I2C1 => i2c::EventInterruptHandler<I2C1>, i2c::ErrorInterruptHandler<I2C1>;
+    EXTI0_1 => ExtiInterruptHandler<EXTI0_1>;
+    EXTI2_3 => ExtiInterruptHandler<EXTI2_3>;
 });
 
 /// EEPROM writes can take up to 5ms to complete, which is longer than we'd like
@@ -36,8 +55,38 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 async fn writer(mut persistence: Persistence<'static, State>) {
     loop {
-        let state = CHANNEL.receive().await;
-        persistence.update(state).await;
+        let event = CHANNEL.receive().await;
+        match event.switch {
+            Switch::Switch1 => persistence.state.switch_1 = event.enabled,
+            Switch::Switch2 => persistence.state.switch_2 = event.enabled,
+        }
+        persistence.update(persistence.state).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn button_reader(
+    switch: Switch,
+    input: ExtiInput<'static, Async>,
+    mut output: Output<'static>,
+    mut output_inv: Output<'static>,
+    initial: bool,
+) {
+    let button = DebouncedButton::new(input, DEBOUNCE_THRESHOLD);
+    let mut toggle = ToggleWithMomentary::new(initial, button, HOLD_THRESHOLD);
+
+    output.set_level(initial.into());
+
+    loop {
+        toggle.on_change().await;
+        output.set_level(toggle.is_enabled.into());
+        output_inv.set_level((!toggle.is_enabled).into());
+        CHANNEL
+            .send(UpdateEvent {
+                switch,
+                enabled: toggle.is_enabled,
+            })
+            .await;
     }
 }
 
@@ -47,70 +96,53 @@ async fn main(spawner: Spawner) -> ! {
 
     let persistence = Persistence::<State>::new(p.I2C1, p.PA9, p.PA10);
 
-    let mut input_1 = ToggleWithMomentary::new(
-        persistence.state.switch_1,
-        p.PA0.degrade(),
-        DEBOUNCE_THRESHOLD,
-        HOLD_THRESHOLD,
-    );
-    let mut output_1 = Output::new(
+    let input_1 = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
+    let output_1 = Output::new(
         p.PA1,
         Level::from(persistence.state.switch_1),
         embassy_stm32::gpio::Speed::Low,
     );
-    let mut output_1_inv = Output::new(
+    let output_1_inv = Output::new(
         p.PA2,
         Level::from(!persistence.state.switch_1),
         embassy_stm32::gpio::Speed::Low,
     );
 
-    let mut input_2 = ToggleWithMomentary::new(
-        persistence.state.switch_2,
-        p.PA3.degrade(),
-        DEBOUNCE_THRESHOLD,
-        HOLD_THRESHOLD,
-    );
-    let mut output_2 = Output::new(
+    let input_2 = ExtiInput::new(p.PA3, p.EXTI3, Pull::Up, Irqs);
+    let output_2 = Output::new(
         p.PA4,
         Level::from(persistence.state.switch_2),
         embassy_stm32::gpio::Speed::Low,
     );
-    let mut output_2_inv = Output::new(
+    let output_2_inv = Output::new(
         p.PA5,
         Level::from(!persistence.state.switch_2),
         embassy_stm32::gpio::Speed::Low,
     );
 
-    spawner.spawn(writer(persistence)).unwrap();
+    spawner.spawn(
+        button_reader(
+            Switch::Switch1,
+            input_1,
+            output_1,
+            output_1_inv,
+            persistence.state.switch_1,
+        )
+        .unwrap(),
+    );
+    spawner.spawn(
+        button_reader(
+            Switch::Switch2,
+            input_2,
+            output_2,
+            output_2_inv,
+            persistence.state.switch_2,
+        )
+        .unwrap(),
+    );
+    spawner.spawn(writer(persistence).unwrap());
 
-    let mut enabled_1 = input_1.is_enabled;
-    let mut enabled_2 = input_2.is_enabled;
-    let mut ticker = Ticker::every(Duration::from_hz(100));
-    let mut modified = false;
     loop {
-        input_1.tick();
-        input_2.tick();
-
-        let state = State::new(input_1.is_enabled, input_2.is_enabled);
-        if input_1.is_enabled != enabled_1 {
-            enabled_1 = input_1.is_enabled;
-            output_1.set_level(Level::from(state.switch_1));
-            output_1_inv.set_level(Level::from(!state.switch_1));
-            modified = true;
-        }
-
-        if input_2.is_enabled != enabled_2 {
-            enabled_2 = input_2.is_enabled;
-            output_2.set_level(Level::from(state.switch_2));
-            output_2_inv.set_level(Level::from(!state.switch_2));
-            modified = true;
-        }
-
-        if modified {
-            CHANNEL.send(state).await;
-            modified = false;
-        }
-
-        ticker.next().await;
+        asm::wfi();
     }
 }

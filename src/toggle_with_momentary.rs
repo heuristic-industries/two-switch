@@ -1,85 +1,50 @@
-use embassy_stm32::gpio::AnyPin;
-use embassy_time::{Duration, Instant};
-use num_enum::{FromPrimitive, IntoPrimitive};
+use embassy_futures::select::{select, Either};
+use embassy_time::{Duration, Timer};
 
 use crate::debounced_button::DebouncedButton;
-
-#[derive(Copy, Clone, FromPrimitive, IntoPrimitive, Debug, PartialEq)]
-#[repr(u8)]
-pub enum SwitchState {
-    #[num_enum(default)]
-    Off,
-    On,
-    Held,
-}
-
 pub struct ToggleWithMomentary {
     pub is_enabled: bool,
     pub is_held: bool,
-    last_state: bool,
+    start_timer: bool,
     button: DebouncedButton,
-    time: Instant,
     hold_threshold: Duration,
 }
 
 impl ToggleWithMomentary {
-    pub fn new(
-        is_enabled: bool,
-        pin: AnyPin,
-        debounce_threshold: Duration,
-        hold_threshold: Duration,
-    ) -> Self {
-        let button = DebouncedButton::new(pin, debounce_threshold);
-
+    pub fn new(is_enabled: bool, button: DebouncedButton, hold_threshold: Duration) -> Self {
         ToggleWithMomentary {
             button,
             is_enabled,
             is_held: false,
-            last_state: false,
+            start_timer: false,
             hold_threshold,
-            time: Instant::MIN,
         }
     }
 
-    pub fn get_enabled(&self) -> SwitchState {
-        if self.is_enabled {
-            SwitchState::On
+    pub async fn on_change(&mut self) {
+        let timer = if self.start_timer {
+            Timer::after(self.hold_threshold)
         } else {
-            SwitchState::Off
-        }
-    }
+            Timer::after(Duration::from_secs(31_536_000 * 10)) // ten years, arbitrarily large
+        };
 
-    pub fn get_state(&self) -> SwitchState {
-        if self.is_held {
-            return SwitchState::Held;
-        }
-
-        return self.get_enabled();
-    }
-
-    pub fn tick(&mut self) -> SwitchState {
-        self.button.tick();
-        let now = Instant::now();
-        let duration = now.duration_since(self.time);
-        if self.is_enabled && self.button.is_pressed && duration > self.hold_threshold {
-            self.is_held = true;
-        }
-
-        if self.button.is_pressed == self.last_state {
-            return self.get_state();
-        }
-
-        if self.button.is_pressed {
-            self.time = now;
-            self.is_enabled = !self.is_enabled
-        } else {
-            if self.is_held {
-                self.is_enabled = false
+        match select(self.button.on_change(), timer).await {
+            Either::First(is_pressed) => {
+                if is_pressed {
+                    self.is_enabled = !self.is_enabled;
+                    self.start_timer = true;
+                } else {
+                    if self.is_held {
+                        self.is_enabled = false
+                    }
+                    self.is_held = false;
+                    self.start_timer = false;
+                }
             }
-            self.is_held = false
+            Either::Second(_) => {
+                self.is_held = true;
+                self.start_timer = false;
+            }
         }
-        self.last_state = self.button.is_pressed;
-
-        return self.get_state();
     }
 }

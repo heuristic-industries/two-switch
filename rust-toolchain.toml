@@ -2,3 +2,4 @@
 channel = "nightly"
 components = ["rust-src", "rustfmt", "llvm-tools"]
 targets = ["thumbv6m-none-eabi"]
+version = "1.89.0"
